@@ -13,9 +13,9 @@ def fetch_and_process_edge_data(player_id):
     landing_url = f"https://api-web.nhle.com/v1/player/{player_id}/landing"
     
     try:
-        res_landing = requests.get(landing_url)
+        res_landing = requests.get(landing_url, timeout=10)
         if res_landing.status_code != 200:
-            print(f"Error: Landing API failed ({res_landing.status_code})")
+            print(f"Error: {player_id} not found ({res_landing.status_code})")
             return
         landing_data = res_landing.json()
     except Exception as e:
@@ -24,15 +24,15 @@ def fetch_and_process_edge_data(player_id):
 
     position = landing_data.get('position', 'C')
     is_goalie = position == 'G'
-    
     endpoint = "goalie-detail" if is_goalie else "skater-detail"
+    
     edge_url = f"https://api-web.nhle.com/v1/edge/{endpoint}/{player_id}/{SEASON}/{REGULAR_SEASON}"
     
     try:
-        res_edge = requests.get(edge_url)
+        res_edge = requests.get(edge_url, timeout=10)
         if res_edge.status_code != 200:
             edge_url = f"https://api-web.nhle.com/v1/edge/{endpoint}/{player_id}/now"
-            res_edge = requests.get(edge_url)
+            res_edge = requests.get(edge_url, timeout=10)
 
         if res_edge.status_code != 200:
             print(f"Error: Edge API failed ({res_edge.status_code})")
@@ -85,17 +85,38 @@ def fetch_and_process_edge_data(player_id):
         ])
 
     df = pd.DataFrame(report_rows)
-    save_path = os.path.join('data', f"{first_name}_{last_name}_edge_report.csv")
+    filename = f"{player_id}_{first_name}_{last_name}_edge_report.csv"
+    save_path = os.path.join('data', filename)
     df.to_csv(save_path, index=False)
     
-    print(f"\n--- {full_name.upper()} | {'GOALIE' if is_goalie else 'SKATER'} EDGE REPORT ---")
-    print(f"Team: {team} | Status: Online")
-    print("-" * 85)
-    for row in report_rows:
-        print(f"{row['Statistic'].ljust(25)} | {str(row['Value']).ljust(15)} | {row['Description']}")
-    print("-" * 85)
-    print(f"Success: Report saved to {save_path}\n")
+    print(f"Updated: {full_name} ({team})")
+
+def bulk_update():
+    if not os.path.exists('data'):
+        print("No data directory found.")
+        return
+
+    files = [f for f in os.listdir('data') if f.endswith('_edge_report.csv')]
+    
+    if not files:
+        print("No reports found to update.")
+        return
+
+    print(f"Updating {len(files)} reports...")
+    for file in files:
+        prefix = file.split('_')[0]
+        if prefix.isdigit():
+            fetch_and_process_edge_data(prefix)
+        else:
+            print(f"Skipping legacy file: {file}")
 
 if __name__ == "__main__":
-    player_id = input("Enter Player ID (Press Enter for McDavid 8478402): ")
-    fetch_and_process_edge_data(player_id if player_id else DEFAULT_PLAYER_ID)
+    try:
+        user_input = input("Enter Player ID or 'act' to update all: ").strip().lower()
+        if user_input == 'act':
+            bulk_update()
+        else:
+            target_id = user_input if user_input else DEFAULT_PLAYER_ID
+            fetch_and_process_edge_data(target_id)
+    except KeyboardInterrupt:
+        print("\nProcess interrupted.")
